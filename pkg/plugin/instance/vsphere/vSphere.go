@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 
@@ -47,14 +48,14 @@ type vmInstance struct {
 	guestIP      *bool
 }
 
-func vCenterConnect(ctx context.Context, vc vCenter, newVM vmInstance) vcInternal {
+func vCenterConnect(ctx context.Context, vc vCenter, newVM vmInstance) (vcInternal, error) {
 
 	var internals vcInternal
 
 	// Parse URL from string
 	u, err := url.Parse(*vc.vCenterURL)
 	if err != nil {
-		log.Fatalf("URL can't be parsed, ensure it is https://username:password/<address>/sdk %v", err)
+		return internals, errors.New("URL can't be parsed, ensure it is https://username:password/<address>/sdk")
 	}
 
 	// Connect and log in to ESX or vCenter
@@ -106,10 +107,10 @@ func vCenterConnect(ctx context.Context, vc vCenter, newVM vmInstance) vcInterna
 	if err != nil {
 		log.Fatalln("Error locating default resource pool")
 	}
-	return internals
+	return internals, nil
 }
 
-func createNewVMInstance(ctx context.Context, vm vmInstance, internals vcInternal, vmName string) {
+func createNewVMInstance(ctx context.Context, vm vmInstance, internals vcInternal, vmName string) error {
 	spec := types.VirtualMachineConfigSpec{
 		Name:     vmName,
 		GuestId:  "otherLinux64Guest",
@@ -120,7 +121,7 @@ func createNewVMInstance(ctx context.Context, vm vmInstance, internals vcInterna
 
 	scsi, err := object.SCSIControllerTypes().CreateSCSIController("pvscsi")
 	if err != nil {
-		log.Fatalln("Error creating pvscsi controller as part of new VM")
+		return errors.New("Error creating pvscsi controller as part of new VM")
 	}
 
 	spec.DeviceChange = append(spec.DeviceChange, &types.VirtualDeviceConfigSpec{
@@ -130,22 +131,22 @@ func createNewVMInstance(ctx context.Context, vm vmInstance, internals vcInterna
 
 	task, err := internals.dcFolders.VmFolder.CreateVM(ctx, spec, internals.resourcePool, internals.hostSystem)
 	if err != nil {
-		log.Fatalln("Creating new VM failed, more detail can be found in vCenter tasks")
+		return errors.New("Creating new VM failed, more detail can be found in vCenter tasks")
 	}
 
 	info, err := task.WaitForResult(ctx, nil)
 	if err != nil {
-		log.Fatalf("Creating new VM failed\n%v", err)
+		return errors.New(fmt.Sprintf("Creating new VM failed\n%v", err))
 	}
 
 	// Retrieve the new VM
 	newVM := object.NewVirtualMachine(internals.client.Client, info.Result.(types.ManagedObjectReference))
 
-	// if *newVM.poweron == true {
-	// log.Infoln("Powering on LinuxKit VM")
-	powerOnVM(ctx, newVM)
-	// }
-
+	if *vm.poweron == true {
+		log.Infoln("Powering on LinuxKit VM")
+		powerOnVM(ctx, newVM)
+	}
+	return nil
 }
 
 func powerOnVM(ctx context.Context, vm *object.VirtualMachine) {

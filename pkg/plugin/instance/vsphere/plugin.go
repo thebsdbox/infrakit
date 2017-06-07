@@ -52,7 +52,10 @@ func NewVSphereInstancePlugin(newVM *vmInstance, vc *vCenter) instance.Plugin {
 	defer cancel()
 
 	// Attempt to log in to VMware vCenter and return the internal variables needed
-	internals := vCenterConnect(ctx, *vc, *newVM)
+	internals, err := vCenterConnect(ctx, *vc, *newVM)
+	if err != nil {
+		fmt.Printf("%v", err)
+	}
 	return &plugin{
 		ctx:              ctx,
 		instance:         newVM,
@@ -109,10 +112,12 @@ func (p *plugin) Provision(spec instance.Spec) (*instance.ID, error) {
 		},
 		Spec: spec,
 	}, "", "")
+
 	log.Debugln("provision", vmName, "data=", string(buff), "err=", err)
 	if err != nil {
 		return nil, err
 	}
+
 	log.Infof("Creating Virtual Machine %s")
 	createNewVMInstance(p.ctx, *p.instance, p.vCenterInternals, string(vmName))
 
