@@ -19,7 +19,7 @@ func main() {
 	var newVMInstance vmInstance
 	var newVCenter vCenter
 
-	name := cmd.Flags().String("name", "instance-vSphere", "Plugin name to advertise for discovery")
+	name := cmd.Flags().String("name", "instance-vsphere", "Plugin name to advertise for discovery")
 	logLevel := cmd.Flags().Int("log", cli.DefaultLogLevel, "Logging level. 0 is least verbose. Max is 5")
 	//	dir := cmd.Flags().String("dir", os.TempDir(), "Dir for storing the files")
 
@@ -35,7 +35,7 @@ func main() {
 	newVMInstance.vmTemplate = cmd.Flags().String("template", "", "The name of a template on the datastore to use [UNUSED]")
 
 	newVMInstance.persistent = cmd.Flags().String("persistentSize", "", "Size in MB of persistent storage to allocate to the VM")
-	newVMInstance.mem = cmd.Flags().Int64("mem", 1024, "Size in MB of memory to allocate to the VM")
+	newVMInstance.mem = cmd.Flags().Int("mem", 1024, "Size in MB of memory to allocate to the VM")
 	newVMInstance.vCpus = cmd.Flags().Int("cpus", 1, "Amount of vCPUs to allocate to the VM")
 	newVMInstance.poweron = cmd.Flags().Bool("powerOn", false, "Power On the new VM once it has been created")
 	newVMInstance.vmPrefix = cmd.Flags().String("vmPrefix", "vm-", "A prefix for created virtual machines. e.g. vm-{UUID}")

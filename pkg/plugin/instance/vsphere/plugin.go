@@ -42,7 +42,8 @@ type fileInstance struct {
 type plugin struct {
 	ctx              context.Context
 	instance         *vmInstance
-	vCenterInternals vcInternal
+	vC               *vCenter
+	vCenterInternals *vcInternal
 }
 
 // NewVSphereInstancePlugin will take the cmdline/env configuration
@@ -52,14 +53,15 @@ func NewVSphereInstancePlugin(newVM *vmInstance, vc *vCenter) instance.Plugin {
 	defer cancel()
 
 	// Attempt to log in to VMware vCenter and return the internal variables needed
-	internals, err := vCenterConnect(ctx, *vc, *newVM)
+	internals, err := vCenterConnect(vc)
 	if err != nil {
 		fmt.Printf("%v", err)
 	}
 	return &plugin{
 		ctx:              ctx,
 		instance:         newVM,
-		vCenterInternals: internals,
+		vC:               vc,
+		vCenterInternals: &internals,
 	}
 }
 
@@ -68,7 +70,7 @@ func (p *plugin) VendorInfo() *spi.VendorInfo {
 	return &spi.VendorInfo{
 		InterfaceSpec: spi.InterfaceSpec{
 			Name:    "infrakit-instance-vSphere",
-			Version: "0.3.0",
+			Version: "0.5.0",
 		},
 		URL: "https://github.com/docker/infrakit",
 	}
@@ -102,8 +104,33 @@ func (p *plugin) Validate(req *types.Any) error {
 
 // Provision creates a new instance based on the spec.
 func (p *plugin) Provision(spec instance.Spec) (*instance.ID, error) {
+
+	var properties map[string]interface{}
+
+	if spec.Properties != nil {
+		if err := spec.Properties.Decode(&properties); err != nil {
+			return nil, fmt.Errorf("Invalid instance properties: %s\n", err)
+		}
+	}
+
 	// Use the VMware plugin data in order to provision a new VM server
 	vmName := instance.ID(fmt.Sprintf(*p.instance.vmPrefix+"-%d", rand.Int63()))
+
+	err := parseParameters(properties, p)
+	if err != nil {
+		log.Errorf("Error: \n%v", err)
+		return nil, err
+	}
+
+	err = setInternalStructures(p.vC, p.vCenterInternals)
+	if err != nil {
+		log.Errorf("Error: /n%v", err)
+		return nil, err
+	}
+	if *p.vC.networkName != "" {
+		findNetwork(p.vC, p.vCenterInternals)
+	}
+
 	buff, err := json.MarshalIndent(fileInstance{
 		Description: instance.Description{
 			Tags:      spec.Tags,
@@ -118,9 +145,7 @@ func (p *plugin) Provision(spec instance.Spec) (*instance.ID, error) {
 		return nil, err
 	}
 
-	log.Infof("Creating Virtual Machine %s")
-	createNewVMInstance(p.ctx, *p.instance, p.vCenterInternals, string(vmName))
-
+	createNewVMInstance(*p.instance, *p.vCenterInternals, string(vmName))
 	return &vmName, nil
 }
 

@@ -43,15 +43,17 @@ type vmInstance struct {
 	persistent   *string
 	persistentSz int
 	vCpus        *int
-	mem          *int64
+	mem          *int
 	poweron      *bool
 	guestIP      *bool
 }
 
-func vCenterConnect(ctx context.Context, vc vCenter, newVM vmInstance) (vcInternal, error) {
+func vCenterConnect(vc *vCenter) (vcInternal, error) {
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	var internals vcInternal
-
 	// Parse URL from string
 	u, err := url.Parse(*vc.vCenterURL)
 	if err != nil {
@@ -61,8 +63,15 @@ func vCenterConnect(ctx context.Context, vc vCenter, newVM vmInstance) (vcIntern
 	// Connect and log in to ESX or vCenter
 	internals.client, err = govmomi.NewClient(ctx, u, true)
 	if err != nil {
-		log.Fatalf("Error logging into vCenter, check address and credentials %v", err)
+		return internals, errors.New(fmt.Sprintf("Error logging into vCenter, check address and credentials %v", err))
 	}
+	return internals, nil
+}
+
+func setInternalStructures(vc *vCenter, internals *vcInternal) error {
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	// Create a new finder that will discover the defaults and are looked for Networks/Datastores
 	f := find.NewFinder(internals.client.Client, true)
@@ -87,36 +96,104 @@ func vCenterConnect(ctx context.Context, vc vCenter, newVM vmInstance) (vcIntern
 		log.Fatalln("Error locating default datacenter folder")
 	}
 
-	// Check if network connectivity is requested
-	//var net object.NetworkReference
-	if *vc.networkName != "" {
-		internals.network, err = f.NetworkOrDefault(ctx, *vc.networkName)
-		if err != nil {
-			log.Fatalf("Network [%s], could not be found", *vc.networkName)
-		}
-	}
-
 	// Set the host that the VM will be created on
 	internals.hostSystem, err = f.HostSystemOrDefault(ctx, *vc.vSphereHost)
 	if err != nil {
 		log.Fatalf("vSphere host [%s], could not be found", *vc.vSphereHost)
 	}
 
-	//var rp *object.ResourcePool
+	// Find the resource pool attached to this host
 	internals.resourcePool, err = internals.hostSystem.ResourcePool(ctx)
 	if err != nil {
 		log.Fatalln("Error locating default resource pool")
 	}
-	return internals, nil
+	return nil
 }
 
-func createNewVMInstance(ctx context.Context, vm vmInstance, internals vcInternal, vmName string) error {
+func parseParameters(properties map[string]interface{}, p *plugin) error {
+	log.Infoln("Building Params")
+	if *p.vC.vCenterURL == "" {
+		if properties["vCenterURL"] == nil {
+			return errors.New("Environment variable VCURL or .yml vCenterURL must be set")
+		} else {
+			*p.vC.vCenterURL = properties["vCenterURL"].(string)
+		}
+	}
+
+	if properties["DataStore"] == nil {
+		return errors.New("Property 'DataStore' must be set")
+	} else {
+		*p.vC.dsName = properties["DataStore"].(string)
+		log.Infof("DataStore set to %s", *p.vC.dsName)
+	}
+
+	if properties["Hostname"] == nil {
+		return errors.New("Property 'Hostname' must be set")
+	} else {
+		*p.vC.vSphereHost = properties["Hostname"].(string)
+	}
+
+	if properties["isoPath"] == nil {
+		//log.Warnf("The property 'Network' hasn't been set, no networks will be attached to VM")
+	} else {
+		*p.instance.isoPath = properties["isoPath"].(string)
+	}
+
+	if properties["Network"] == nil {
+		log.Warnf("The property 'Network' hasn't been set, no networks will be attached to VM")
+	} else {
+		*p.vC.networkName = properties["Network"].(string)
+	}
+
+	if properties["CPUs"] == nil {
+		*p.instance.vCpus = 2
+	} else {
+		*p.instance.vCpus = int(properties["CPUs"].(float64))
+
+	}
+	if properties["Memory"] == nil {
+		*p.instance.mem = 512
+	} else {
+		*p.instance.mem = int(properties["Memory"].(float64))
+	}
+	return nil
+}
+
+func findNetwork(vc *vCenter, internals *vcInternal) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Create a new finder that will discover the defaults and are looked for Networks/Datastores
+	f := find.NewFinder(internals.client.Client, true)
+
+	// Find one and only datacenter, not sure how VMware linked mode will work
+	dc, err := f.DefaultDatacenter(ctx)
+	if err != nil {
+		log.Fatalf("No Datacenter instance could be found inside of vCenter %v", err)
+	}
+
+	// Make future calls local to this datacenter
+	f.SetDatacenter(dc)
+
+	if *vc.networkName != "" {
+		internals.network, err = f.NetworkOrDefault(ctx, *vc.networkName)
+		if err != nil {
+			log.Fatalf("Network [%s], could not be found", *vc.networkName)
+		}
+	}
+}
+
+func createNewVMInstance(vm vmInstance, internals vcInternal, vmName string) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	log.Printf("in the create New VM function creating : %s\n", vmName)
 	spec := types.VirtualMachineConfigSpec{
 		Name:     vmName,
 		GuestId:  "otherLinux64Guest",
 		Files:    &types.VirtualMachineFileInfo{VmPathName: fmt.Sprintf("[%s]", internals.datastore.Name())},
 		NumCPUs:  int32(*vm.vCpus),
-		MemoryMB: *vm.mem,
+		MemoryMB: int64(*vm.mem),
 	}
 
 	scsi, err := object.SCSIControllerTypes().CreateSCSIController("pvscsi")
@@ -144,19 +221,23 @@ func createNewVMInstance(ctx context.Context, vm vmInstance, internals vcInterna
 
 	if *vm.poweron == true {
 		log.Infoln("Powering on LinuxKit VM")
-		powerOnVM(ctx, newVM)
+		return powerOnVM(newVM)
 	}
 	return nil
 }
 
-func powerOnVM(ctx context.Context, vm *object.VirtualMachine) {
+func powerOnVM(vm *object.VirtualMachine) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	task, err := vm.PowerOn(ctx)
 	if err != nil {
-		log.Errorln("Power On operation has failed, more detail can be found in vCenter tasks")
+		return errors.New("Power On operation has failed, more detail can be found in vCenter tasks")
 	}
 
 	_, err = task.WaitForResult(ctx, nil)
 	if err != nil {
-		log.Errorln("Power On Task has failed, more detail can be found in vCenter tasks")
+		return errors.New("Power On Task has failed, more detail can be found in vCenter tasks")
 	}
+	return nil
 }
