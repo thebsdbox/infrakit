@@ -115,6 +115,9 @@ func (p *plugin) Provision(spec instance.Spec) (*instance.ID, error) {
 
 	// Use the VMware plugin data in order to provision a new VM server
 	vmName := instance.ID(fmt.Sprintf(*p.instance.vmPrefix+"-%d", rand.Int63()))
+	if spec.Tags != nil {
+		log.Infof("Adding %s to Group %v", string(vmName), spec.Tags["infrakit.group"])
+	}
 
 	err := parseParameters(properties, p)
 	if err != nil {
@@ -124,7 +127,7 @@ func (p *plugin) Provision(spec instance.Spec) (*instance.ID, error) {
 
 	err = setInternalStructures(p.vC, p.vCenterInternals)
 	if err != nil {
-		log.Errorf("Error: /n%v", err)
+		log.Errorf("Error: \n%v", err)
 		return nil, err
 	}
 	if *p.vC.networkName != "" {
@@ -145,12 +148,13 @@ func (p *plugin) Provision(spec instance.Spec) (*instance.ID, error) {
 		return nil, err
 	}
 
-	createNewVMInstance(*p.instance, *p.vCenterInternals, string(vmName))
+	createNewVMInstance(*p.instance, *p.vCenterInternals, string(vmName), spec.Tags["infrakit.group"])
 	return &vmName, nil
 }
 
 // Label labels the instance
 func (p *plugin) Label(instance instance.ID, labels map[string]string) error {
+
 	// fp := filepath.Join(p.Dir, string(instance))
 	// buff, err := afero.ReadFile(p.fs, fp)
 	// if err != nil {
@@ -188,6 +192,7 @@ func (p *plugin) Destroy(instance instance.ID) error {
 // TODO - need to define the fitlering of tags => AND or OR of matches?
 func (p *plugin) DescribeInstances(tags map[string]string, properties bool) ([]instance.Description, error) {
 	log.Debugln("describe-instances", tags)
+	//result := []instance.Description{}
 	// entries, err := afero.ReadDir(p.fs, p.Dir)
 	// if err != nil {
 	// 	return nil, err

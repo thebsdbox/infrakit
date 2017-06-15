@@ -38,7 +38,7 @@ func main() {
 	newVMInstance.mem = cmd.Flags().Int("mem", 1024, "Size in MB of memory to allocate to the VM")
 	newVMInstance.vCpus = cmd.Flags().Int("cpus", 1, "Amount of vCPUs to allocate to the VM")
 	newVMInstance.poweron = cmd.Flags().Bool("powerOn", false, "Power On the new VM once it has been created")
-	newVMInstance.vmPrefix = cmd.Flags().String("vmPrefix", "vm-", "A prefix for created virtual machines. e.g. vm-{UUID}")
+	newVMInstance.vmPrefix = cmd.Flags().String("vmPrefix", "vm", "A prefix for created virtual machines. e.g. vm-{UUID}")
 
 	cmd.Run = func(c *cobra.Command, args []string) {
 		cli.SetLogLevel(*logLevel)

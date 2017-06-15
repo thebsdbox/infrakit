@@ -38,7 +38,11 @@ type vmInstance struct {
 	// Used with a VMware VM template
 	vmTemplate *string
 
+	// Used by InfraKit to tack group
+	groupTag *string
+
 	// InfraKit vSphere instance settings
+	annotation   string
 	vmPrefix     *string
 	persistent   *string
 	persistentSz int
@@ -111,7 +115,7 @@ func setInternalStructures(vc *vCenter, internals *vcInternal) error {
 }
 
 func parseParameters(properties map[string]interface{}, p *plugin) error {
-	log.Infoln("Building Params")
+	log.Debugf("Building vCenter specific parameters")
 	if *p.vC.vCenterURL == "" {
 		if properties["vCenterURL"] == nil {
 			return errors.New("Environment variable VCURL or .yml vCenterURL must be set")
@@ -120,11 +124,17 @@ func parseParameters(properties map[string]interface{}, p *plugin) error {
 		}
 	}
 
+	if properties["Annotation"] == nil {
+	} else {
+		//newString := properties["Annotation"].(string)
+		p.instance.annotation = properties["Annotation"].(string)
+	}
+
 	if properties["DataStore"] == nil {
 		return errors.New("Property 'DataStore' must be set")
 	} else {
 		*p.vC.dsName = properties["DataStore"].(string)
-		log.Infof("DataStore set to %s", *p.vC.dsName)
+		log.Debugf("DataStore set to %s", *p.vC.dsName)
 	}
 
 	if properties["Hostname"] == nil {
@@ -183,17 +193,17 @@ func findNetwork(vc *vCenter, internals *vcInternal) {
 	}
 }
 
-func createNewVMInstance(vm vmInstance, internals vcInternal, vmName string) error {
+func createNewVMInstance(vm vmInstance, internals vcInternal, vmName string, groupID string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	log.Printf("in the create New VM function creating : %s\n", vmName)
 	spec := types.VirtualMachineConfigSpec{
-		Name:     vmName,
-		GuestId:  "otherLinux64Guest",
-		Files:    &types.VirtualMachineFileInfo{VmPathName: fmt.Sprintf("[%s]", internals.datastore.Name())},
-		NumCPUs:  int32(*vm.vCpus),
-		MemoryMB: int64(*vm.mem),
+		Name:       vmName,
+		GuestId:    "otherLinux64Guest",
+		Files:      &types.VirtualMachineFileInfo{VmPathName: fmt.Sprintf("[%s]", internals.datastore.Name())},
+		NumCPUs:    int32(*vm.vCpus),
+		MemoryMB:   int64(*vm.mem),
+		Annotation: groupID + "/n" + vm.annotation,
 	}
 
 	scsi, err := object.SCSIControllerTypes().CreateSCSIController("pvscsi")
@@ -206,7 +216,28 @@ func createNewVMInstance(vm vmInstance, internals vcInternal, vmName string) err
 		Device:    scsi,
 	})
 
-	task, err := internals.dcFolders.VmFolder.CreateVM(ctx, spec, internals.resourcePool, internals.hostSystem)
+	// Create a new finder that will discover the defaults and are looked for Networks/Datastores
+	f := find.NewFinder(internals.client.Client, true)
+
+	// Find one and only datacenter, not sure how VMware linked mode will work
+	dc, err := f.DefaultDatacenter(ctx)
+	if err != nil {
+		log.Fatalf("No Datacenter instance could be found inside of vCenter %v", err)
+	}
+
+	// Make future calls local to this datacenter
+	f.SetDatacenter(dc)
+
+	groupFolder, err := f.Folder(ctx, groupID)
+	if err != nil {
+		log.Warnf("%v", err)
+		groupFolder, err = internals.dcFolders.VmFolder.CreateFolder(ctx, groupID)
+		if err != nil {
+			log.Warnf("%v", err)
+		}
+	}
+
+	task, err := groupFolder.CreateVM(ctx, spec, internals.resourcePool, internals.hostSystem)
 	if err != nil {
 		return errors.New("Creating new VM failed, more detail can be found in vCenter tasks")
 	}
