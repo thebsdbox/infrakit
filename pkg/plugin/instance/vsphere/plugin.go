@@ -192,6 +192,8 @@ func (p *plugin) Destroy(instance instance.ID) error {
 // TODO - need to define the fitlering of tags => AND or OR of matches?
 func (p *plugin) DescribeInstances(tags map[string]string, properties bool) ([]instance.Description, error) {
 	log.Debugln("describe-instances", tags)
+	groupName := tags["infrakit.group"]
+
 	//result := []instance.Description{}
 	// entries, err := afero.ReadDir(p.fs, p.Dir)
 	// if err != nil {

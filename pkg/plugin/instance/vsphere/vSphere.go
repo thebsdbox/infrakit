@@ -169,6 +169,30 @@ func parseParameters(properties map[string]interface{}, p *plugin) error {
 	return nil
 }
 
+func findGroupInstances(p *plugin, groupName string) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Create a new finder that will discover the defaults and are looked for Networks/Datastores
+	f := find.NewFinder(p.vCenterInternals.client.Client, true)
+
+	// Find one and only datacenter, not sure how VMware linked mode will work
+	dc, err := f.DefaultDatacenter(ctx)
+	if err != nil {
+		log.Fatalf("No Datacenter instance could be found inside of vCenter %v", err)
+	}
+
+	// Make future calls local to this datacenter
+	f.SetDatacenter(dc)
+	vmList, err := f.VirtualMachineList(ctx, groupName)
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+	if len(vmList) == 0 {
+		log.Errorf("No Virtual Machines found in Folder")
+	}
+}
+
 func findNetwork(vc *vCenter, internals *vcInternal) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
