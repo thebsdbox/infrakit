@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"math/rand"
 	"time"
@@ -27,17 +26,6 @@ type Spec map[string]interface{}
 func init() {
 	rand.Seed(time.Now().UTC().UnixNano())
 }
-
-// fileInstance represents a single file instance on disk.
-type fileInstance struct {
-	instance.Description
-	Spec instance.Spec
-}
-
-// type plugin struct {
-// 	Dir string
-// 	fs  afero.Fs
-// }
 
 type plugin struct {
 	ctx              context.Context
@@ -70,7 +58,7 @@ func (p *plugin) VendorInfo() *spi.VendorInfo {
 	return &spi.VendorInfo{
 		InterfaceSpec: spi.InterfaceSpec{
 			Name:    "infrakit-instance-vSphere",
-			Version: "0.5.0",
+			Version: "0.6.0",
 		},
 		URL: "https://github.com/docker/infrakit",
 	}
@@ -113,12 +101,6 @@ func (p *plugin) Provision(spec instance.Spec) (*instance.ID, error) {
 		}
 	}
 
-	// Use the VMware plugin data in order to provision a new VM server
-	vmName := instance.ID(fmt.Sprintf(*p.instance.vmPrefix+"-%d", rand.Int63()))
-	if spec.Tags != nil {
-		log.Infof("Adding %s to Group %v", string(vmName), spec.Tags["infrakit.group"])
-	}
-
 	err := parseParameters(properties, p)
 	if err != nil {
 		log.Errorf("Error: \n%v", err)
@@ -130,20 +112,17 @@ func (p *plugin) Provision(spec instance.Spec) (*instance.ID, error) {
 		log.Errorf("Error: \n%v", err)
 		return nil, err
 	}
+
 	if *p.vC.networkName != "" {
 		findNetwork(p.vC, p.vCenterInternals)
 	}
 
-	buff, err := json.MarshalIndent(fileInstance{
-		Description: instance.Description{
-			Tags:      spec.Tags,
-			ID:        vmName,
-			LogicalID: spec.LogicalID,
-		},
-		Spec: spec,
-	}, "", "")
+	// Use the VMware plugin data in order to provision a new VM server
+	vmName := instance.ID(fmt.Sprintf(*p.instance.vmPrefix+"-%d", rand.Int63()))
+	if spec.Tags != nil {
+		log.Infof("Adding %s to Group %v", string(vmName), spec.Tags["infrakit.group"])
+	}
 
-	log.Debugln("provision", vmName, "data=", string(buff), "err=", err)
 	if err != nil {
 		return nil, err
 	}
@@ -182,9 +161,11 @@ func (p *plugin) Label(instance instance.ID, labels map[string]string) error {
 }
 
 // Destroy terminates an existing instance.
-func (p *plugin) Destroy(instance instance.ID) error {
+func (p *plugin) Destroy(instance instance.ID, context instance.Context) error {
 	// fp := filepath.Join(p.Dir, string(instance))
 	log.Debugln("destroy")
+	fmt.Printf("%v\n %v \n", instance, context)
+	deleteVM(p, string(instance))
 	return nil
 }
 
@@ -193,46 +174,34 @@ func (p *plugin) Destroy(instance instance.ID) error {
 func (p *plugin) DescribeInstances(tags map[string]string, properties bool) ([]instance.Description, error) {
 	log.Debugln("describe-instances", tags)
 	groupName := tags["infrakit.group"]
+	instances, err := findGroupInstances(p, groupName)
+	if err != nil {
+		return nil, err
+	}
+	if len(instances) == 0 {
+		log.Warnln("No Instances found")
+	}
 
-	//result := []instance.Description{}
-	// entries, err := afero.ReadDir(p.fs, p.Dir)
-	// if err != nil {
-	// 	return nil, err
-	// }
-	//
-	// 	result := []instance.Description{}
-	// scan:
-	// for _, entry := range entries {
-	// fp := filepath.Join(p.Dir, entry.Name())
-	// file, err := p.fs.Open(fp)
-	// if err != nil {
-	// 	log.Warningln("error opening", fp)
-	// 	continue scan
-	// }
+	results := []instance.Description{}
 
-	// inst := fileInstance{}
-	// err = json.NewDecoder(file).Decode(&inst)
-	// if err != nil {
-	// 	log.Warning("cannot decode", entry.Name())
-	// 	continue scan
-	// }
+	for _, vmInstance := range instances {
+		lid := (instance.LogicalID)(vmInstance.Name())
+		results = append(results, instance.Description{
+			ID:        instance.ID(vmInstance.Name()),
+			LogicalID: &lid,
+			Tags:      tags,
+		})
 
-	// 	if properties {
-	// 		if blob, err := types.AnyValue(inst.Spec); err == nil {
-	// 			inst.Properties = blob
-	// 		}
-	// 	}
-	// 	if len(tags) == 0 {
-	// 		result = append(result, inst.Description)
-	// 	} else {
-	// 		for k, v := range tags {
-	// 			if inst.Tags[k] != v {
-	// 				continue scan // we implement AND
-	// 			}
-	// 		}
-	// 		result = append(result, inst.Description)
-	// 	}
-	//
-	// }
-	return nil, nil
+		// description.LogicalID = vmInstance.Name()
+		// if len(tags) == 0 {
+		// 	result = append(result, description)
+		// } else {
+		// 	for k, v := range tags {
+		// 	}
+		// 	result = append(result, description)
+		// }
+		//log.Warnf("Found %s", vmInstance.Name())
+	}
+
+	return results, nil
 }

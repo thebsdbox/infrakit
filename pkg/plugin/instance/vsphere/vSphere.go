@@ -169,7 +169,12 @@ func parseParameters(properties map[string]interface{}, p *plugin) error {
 	return nil
 }
 
-func findGroupInstances(p *plugin, groupName string) {
+func findGroupInstances(p *plugin, groupName string) ([]*object.VirtualMachine, error) {
+
+	if groupName == "" {
+		return nil, errors.New("The tag infrakit.group was blank")
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -179,21 +184,22 @@ func findGroupInstances(p *plugin, groupName string) {
 	// Find one and only datacenter, not sure how VMware linked mode will work
 	dc, err := f.DefaultDatacenter(ctx)
 	if err != nil {
-		log.Fatalf("No Datacenter instance could be found inside of vCenter %v", err)
+		return nil, errors.New(fmt.Sprintf("No Datacenter instance could be found inside of vCenter %v", err))
 	}
 
 	// Make future calls local to this datacenter
 	f.SetDatacenter(dc)
-	vmList, err := f.VirtualMachineList(ctx, groupName)
+	vmList, err := f.VirtualMachineList(ctx, groupName+"/*")
 	if err != nil {
-		log.Fatalf("%v", err)
+		log.Errorf("%v", err)
 	}
 	if len(vmList) == 0 {
 		log.Errorf("No Virtual Machines found in Folder")
 	}
+	return vmList, nil
 }
 
-func findNetwork(vc *vCenter, internals *vcInternal) {
+func findNetwork(vc *vCenter, internals *vcInternal) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -203,7 +209,7 @@ func findNetwork(vc *vCenter, internals *vcInternal) {
 	// Find one and only datacenter, not sure how VMware linked mode will work
 	dc, err := f.DefaultDatacenter(ctx)
 	if err != nil {
-		log.Fatalf("No Datacenter instance could be found inside of vCenter %v", err)
+		return errors.New(fmt.Sprintf("No Datacenter instance could be found inside of vCenter %v", err))
 	}
 
 	// Make future calls local to this datacenter
@@ -212,9 +218,10 @@ func findNetwork(vc *vCenter, internals *vcInternal) {
 	if *vc.networkName != "" {
 		internals.network, err = f.NetworkOrDefault(ctx, *vc.networkName)
 		if err != nil {
-			log.Fatalf("Network [%s], could not be found", *vc.networkName)
+			return errors.New(fmt.Sprintf("Network [%s], could not be found", *vc.networkName))
 		}
 	}
+	return nil
 }
 
 func createNewVMInstance(vm vmInstance, internals vcInternal, vmName string, groupID string) error {
@@ -246,7 +253,7 @@ func createNewVMInstance(vm vmInstance, internals vcInternal, vmName string, gro
 	// Find one and only datacenter, not sure how VMware linked mode will work
 	dc, err := f.DefaultDatacenter(ctx)
 	if err != nil {
-		log.Fatalf("No Datacenter instance could be found inside of vCenter %v", err)
+		return errors.New(fmt.Sprintf("No Datacenter instance could be found inside of vCenter %v", err))
 	}
 
 	// Make future calls local to this datacenter
@@ -257,7 +264,7 @@ func createNewVMInstance(vm vmInstance, internals vcInternal, vmName string, gro
 		log.Warnf("%v", err)
 		groupFolder, err = internals.dcFolders.VmFolder.CreateFolder(ctx, groupID)
 		if err != nil {
-			log.Warnf("%v", err)
+			return err
 		}
 	}
 
@@ -273,10 +280,38 @@ func createNewVMInstance(vm vmInstance, internals vcInternal, vmName string, gro
 
 	// Retrieve the new VM
 	newVM := object.NewVirtualMachine(internals.client.Client, info.Result.(types.ManagedObjectReference))
-
 	if *vm.poweron == true {
 		log.Infoln("Powering on LinuxKit VM")
 		return powerOnVM(newVM)
+	}
+	return nil
+}
+
+func deleteVM(p *plugin, vm string) error {
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// Create a new finder that will discover the defaults and are looked for Networks/Datastores
+	f := find.NewFinder(p.vCenterInternals.client.Client, true)
+
+	// Find one and only datacenter, not sure how VMware linked mode will work
+	dc, err := f.DefaultDatacenter(ctx)
+	if err != nil {
+		return errors.New(fmt.Sprintf("No Datacenter instance could be found inside of vCenter %v", err))
+	}
+
+	// Make future calls local to this datacenter
+	f.SetDatacenter(dc)
+	foundVM, err := f.VirtualMachine(ctx, vm)
+
+	task, err := foundVM.Destroy(ctx)
+	if err != nil {
+		return errors.New("Delete operation has failed, more detail can be found in vCenter tasks")
+	}
+
+	_, err = task.WaitForResult(ctx, nil)
+	if err != nil {
+		return errors.New("Delete Task has failed, more detail can be found in vCenter tasks")
 	}
 	return nil
 }
