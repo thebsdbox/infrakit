@@ -3,7 +3,9 @@ InfraKit
 
 [![Circle CI](https://circleci.com/gh/docker/infrakit.png?style=shield&circle-token=50d2063f283f98b7d94746416c979af3102275b5)](https://circleci.com/gh/docker/infrakit)
 [![Go Report Card](https://goreportcard.com/badge/github.com/docker/infrakit)](https://goreportcard.com/report/github.com/docker/infrakit)
+<!--
 [![codecov.io](https://codecov.io/github/docker/infrakit/coverage.svg?branch=master&token=z08ZKeIJfA)](https://codecov.io/github/docker/infrakit?branch=master)
+-->
 
 _InfraKit_ is a toolkit for infrastructure orchestration.
 With an emphasis on immutable infrastructure, it breaks down infrastructure automation and management processes into small, pluggable components.
@@ -59,14 +61,14 @@ Here is a list of plugins:
 | [zookeeper](./examples/flavor/zookeeper)            | flavor   | run an Apache ZooKeeper ensemble        |
 | [infrakit/file](./examples/instance/file)           | instance | useful for development and testing      |
 | [infrakit/docker](./examples/instance/docker)       | instance | provisions container via Docker         |
-| [infrakit/terraform](./examples/instance/terraform) | instance | creates resources using Terraform       |
+| [infrakit/terraform](./pkg/provider/terraform/instance) | instance | creates resources using Terraform       |
 | [infrakit/maas](./examples/instance/maas)           | instance | bare-metal provisioning using Ubuntu MAAS  |
 | [infrakit/vagrant](./examples/instance/vagrant)     | instance | creates Vagrant VMs                     |
-| [infrakit/hyperkit](./pkg/plugin/instance/hyperkit)   | instance | creates Xhyve VMs on Mac OSX            |
+| [infrakit/hyperkit](./pkg/plugin/instance/hyperkit)   | instance | creates [HyperKit](https://github.com/moby/hyperkit) VMs on Mac OSX |
 | [infrakit/packet](./pkg/plugin/instance/packet)       | instance | provisions bare metal hosts on Packet   |
 | [infrakit/libvirt](./pkg/plugin/instance/libvirt)     | instance | provisions KVM vms via libvirt          |
-| [docker/infrakit.aws](https://github.com/docker/infrakit.aws)       | instance | creates Amazon EC2 instances and other resource types |
-| [docker/infrakit.gcp](https://github.com/docker/infrakit.gcp)       | instance | creates Google Cloud Platform compute instances       |
+| [infrakit/aws](./pkg/provider/aws)                    | instance | creates Amazon EC2 instances and other resource types |
+| [infrakit/google](./pkg/provider/google/plugin/instance)     | instance | Google Cloud Platform compute instances |
 | [docker/infrakit.digitalocean](https://github.com/docker/infrakit.digitalocean) | instance | creates DigitalOcean droplets             |
 
 ### Community Implementations
@@ -75,7 +77,7 @@ Here is a list of plugins:
 |:--------------------------------------------------------|:---------|:----------------------------------------|
 | [HewlettPackard/infrakit-instance-oneview](https://github.com/HewlettPackard/infrakit-instance-oneview)      | instance    | bare-metal server provisioning via HP-OneView |
 | [codedellemc/infrakit.rackhd](https://github.com/codedellemc/infrakit.rackhd)      | instance    | bare-metal server provisioning via RackHD |
-| [IBM Bluemix / SoftLayer](./examples/instance/terraform) | instance    | SoftLayer via terraform             |
+| [IBM Bluemix / SoftLayer](./pkg/provider/terraform/instance) | instance    | SoftLayer via terraform             |
 | [AliyunContainerService/infrakit.aliyun](https://github.com/AliyunContainerService/infrakit.aliyun) | instance    | Provisions instances on Alibaba Cloud |
 | [1and1/infrakit-instance-oneandone](https://github.com/1and1/infrakit-instance-oneandone) | instance    | Provisions instances on 1&1 Cloud Server |
 | [sacloud/infrakit-instance-sakuracloud](https://github.com/sacloud/infrakit.sakuracloud) | instance    | Provisions instances on Sakura Cloud |
@@ -126,7 +128,7 @@ This will produce binaries for tools and several reference Plugin implementation
   + [`infrakit`](cmd/cli/README.md): a command line interface to interact with plugins
   + [`infrakit-group-default`](cmd/group/README.md): the default [Group plugin](./pkg/spi/group)
   + [`infrakit-instance-file`](examples/instance/file): an Instance plugin using dummy files to represent instances
-  + [`infrakit-instance-terraform`](examples/instance/terraform):
+  + [`infrakit-instance-terraform`](pkg/provider/terraform/instance):
     an Instance plugin integrating [Terraform](https://www.terraform.io)
   + [`infrakit-instance-vagrant`](examples/instance/vagrant):
     an Instance plugin using [Vagrant](https://www.vagrantup.com/)

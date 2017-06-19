@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -13,31 +14,48 @@ import (
 	discovery_local "github.com/docker/infrakit/pkg/discovery/local"
 	"github.com/docker/infrakit/pkg/discovery/remote"
 	logutil "github.com/docker/infrakit/pkg/log"
+	"github.com/docker/infrakit/pkg/plugin"
+	"github.com/docker/infrakit/pkg/template"
 	"github.com/spf13/cobra"
 
-	_ "github.com/docker/infrakit/pkg/cli/v1"
-
-	// TODO - deprecate these in favor of the dynamic commands (see above)
-	//_ "github.com/docker/infrakit/cmd/infrakit/flavor"
-	//_ "github.com/docker/infrakit/cmd/infrakit/group"
-	//_ "github.com/docker/infrakit/cmd/infrakit/instance"
-	//_ "github.com/docker/infrakit/cmd/infrakit/resource"
-
+	// CLI commands
 	_ "github.com/docker/infrakit/cmd/infrakit/event"
 	_ "github.com/docker/infrakit/cmd/infrakit/manager"
 	_ "github.com/docker/infrakit/cmd/infrakit/metadata"
-
 	_ "github.com/docker/infrakit/cmd/infrakit/playbook"
 	_ "github.com/docker/infrakit/cmd/infrakit/plugin"
 	_ "github.com/docker/infrakit/cmd/infrakit/remote"
 	_ "github.com/docker/infrakit/cmd/infrakit/template"
 	_ "github.com/docker/infrakit/cmd/infrakit/util"
 	_ "github.com/docker/infrakit/cmd/infrakit/x"
+	_ "github.com/docker/infrakit/pkg/cli/v1"
+
+	// CLI backends
+	_ "github.com/docker/infrakit/pkg/cli/backend/http"
+	_ "github.com/docker/infrakit/pkg/cli/backend/instance"
+	_ "github.com/docker/infrakit/pkg/cli/backend/manager"
+	_ "github.com/docker/infrakit/pkg/cli/backend/print"
+	_ "github.com/docker/infrakit/pkg/cli/backend/sh"
 )
 
 func init() {
 	logutil.Configure(&logutil.ProdDefaults)
 }
+
+type emptyPlugins struct{}
+
+func (e emptyPlugins) Find(name plugin.Name) (*plugin.Endpoint, error) {
+	return nil, errEmpty
+}
+
+func (e emptyPlugins) List() (map[string]*plugin.Endpoint, error) {
+	return nil, errEmpty
+}
+
+var (
+	empty    = emptyPlugins{}
+	errEmpty = errors.New("no plugins")
+)
 
 // A generic client for infrakit
 func main() {
@@ -46,6 +64,9 @@ func main() {
 		panic(err)
 	}
 	if err := cli_local.Setup(); err != nil {
+		panic(err)
+	}
+	if err := template.Setup(); err != nil {
 		panic(err)
 	}
 
@@ -77,23 +98,23 @@ func main() {
 
 		ulist, err := cli.Remotes()
 		if err != nil {
-			log.Crit("Cannot lookup plugins", "err", err)
-			os.Exit(1)
+			log.Debug("Cannot lookup plugins", "err", err)
+			return empty
 		}
 
 		if len(ulist) == 0 {
 			d, err := discovery_local.NewPluginDiscovery()
 			if err != nil {
-				log.Crit("Failed to initialize plugin discovery", "err", err)
-				os.Exit(1)
+				log.Debug("Failed to initialize plugin discovery", "err", err)
+				return empty
 			}
 			return d
 		}
 
 		d, err := remote.NewPluginDiscovery(ulist)
 		if err != nil {
-			log.Crit("Failed to initialize remote plugin discovery", "err", err)
-			os.Exit(1)
+			log.Debug("Failed to initialize remote plugin discovery", "err", err)
+			return empty
 		}
 		return d
 	}
@@ -108,8 +129,8 @@ func main() {
 	if os.Getenv("INFRAKIT_DYNAMIC_CLI") != "false" {
 		// Load dynamic plugin commands based on discovery
 		pluginCommands, err := cli.LoadAll(cli.NewServices(f))
-		if err != nil {
-			log.Crit("error loading", "cmd", cmd.Use, "err", err)
+		if err != nil && err != errEmpty {
+			log.Debug("error loading", "cmd", cmd.Use, "err", err)
 			fmt.Println(err.Error())
 			os.Exit(1)
 		}
