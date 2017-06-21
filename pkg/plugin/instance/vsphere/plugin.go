@@ -29,14 +29,12 @@ func init() {
 
 type plugin struct {
 	ctx              context.Context
-	instance         *vmInstance
 	vC               *vCenter
 	vCenterInternals *vcInternal
 }
 
 // NewVSphereInstancePlugin will take the cmdline/env configuration
-func NewVSphereInstancePlugin(newVM *vmInstance, vc *vCenter) instance.Plugin {
-	log.Debugln("vSphere instance plugin.\nData:\n\tvCenter: %v\n\tVM Instance %v", vc, newVM)
+func NewVSphereInstancePlugin(vc *vCenter) instance.Plugin {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -47,7 +45,6 @@ func NewVSphereInstancePlugin(newVM *vmInstance, vc *vCenter) instance.Plugin {
 	}
 	return &plugin{
 		ctx:              ctx,
-		instance:         newVM,
 		vC:               vc,
 		vCenterInternals: &internals,
 	}
@@ -101,7 +98,7 @@ func (p *plugin) Provision(spec instance.Spec) (*instance.ID, error) {
 		}
 	}
 
-	err := parseParameters(properties, p)
+	newInstance, err := parseParameters(properties, p)
 	if err != nil {
 		log.Errorf("Error: \n%v", err)
 		return nil, err
@@ -118,7 +115,7 @@ func (p *plugin) Provision(spec instance.Spec) (*instance.ID, error) {
 	}
 
 	// Use the VMware plugin data in order to provision a new VM server
-	vmName := instance.ID(fmt.Sprintf(*p.instance.vmPrefix+"-%d", rand.Int63()))
+	vmName := instance.ID(fmt.Sprintf(newInstance.vmPrefix+"-%d", rand.Int63()))
 	if spec.Tags != nil {
 		log.Infof("Adding %s to Group %v", string(vmName), spec.Tags["infrakit.group"])
 	}
@@ -126,8 +123,8 @@ func (p *plugin) Provision(spec instance.Spec) (*instance.ID, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	createNewVMInstance(*p.instance, *p.vCenterInternals, string(vmName), spec.Tags["infrakit.group"])
+	newInstance.vmName = string(vmName)
+	createNewVMInstance(p, &newInstance, spec.Tags["infrakit.group"])
 	return &vmName, nil
 }
 
